@@ -1,22 +1,33 @@
-import Meyda, { MeydaFeaturesObject, MeydaAudioFeature } from 'meyda';
-import { AudioAnalysis, AudioFeatures, AudioProcessorConfig } from '@/types/audio';
-import { AUDIO_CONFIG } from '@/constants';
-import { detectKey } from '@/utils/music';
+import Meyda, { MeydaFeaturesObject, MeydaAudioFeature } from "meyda";
+import {
+  AudioAnalysis,
+  AudioFeatures,
+  AudioProcessorConfig,
+} from "@/types/audio";
+import { AUDIO_CONFIG } from "@/constants";
+import { detectKey } from "@/utils/music";
 
 // Audio Context Manager - Functional approach
 const createAudioContextManager = () => {
   let context: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
 
-  const initialize = async (config: AudioProcessorConfig): Promise<{ context: AudioContext; analyser: AnalyserNode }> => {
-    if (typeof window === 'undefined') {
-      throw new Error('AudioContext is not available in server-side environment');
+  const initialize = async (
+    config: AudioProcessorConfig
+  ): Promise<{ context: AudioContext; analyser: AnalyserNode }> => {
+    if (typeof window === "undefined") {
+      throw new Error(
+        "AudioContext is not available in server-side environment"
+      );
     }
 
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
     context = new AudioContextClass();
 
-    if (context.state === 'suspended') {
+    if (context.state === "suspended") {
       await context.resume();
     }
 
@@ -29,13 +40,16 @@ const createAudioContextManager = () => {
     return { context, analyser };
   };
 
-  const setExisting = (existingContext: AudioContext, existingAnalyser: AnalyserNode): void => {
+  const setExisting = (
+    existingContext: AudioContext,
+    existingAnalyser: AnalyserNode
+  ): void => {
     context = existingContext;
     analyser = existingAnalyser;
   };
 
   const dispose = (): void => {
-    if (context?.state !== 'closed') {
+    if (context?.state !== "closed") {
       context?.close();
     }
     context = null;
@@ -51,32 +65,35 @@ const createAudioContextManager = () => {
 // Feature Extractor - Functional approach
 const createFeatureExtractor = (config: AudioProcessorConfig) => {
   const initializeMeyda = (): void => {
-    if (typeof window !== 'undefined' && typeof Meyda !== 'undefined') {
+    if (typeof window !== "undefined" && typeof Meyda !== "undefined") {
       Meyda.bufferSize = config.bufferSize;
       Meyda.sampleRate = config.sampleRate;
-      Meyda.windowingFunction = 'hanning';
+      Meyda.windowingFunction = "hanning";
     }
   };
 
   const calculateSpectralBandwidth = (audioData: Float32Array): number => {
     const fftSize = audioData.length;
     const nyquist = config.sampleRate / 2;
-    
+
     let weightedSum = 0;
     let magnitudeSum = 0;
-    
+
     for (let i = 0; i < fftSize / 2; i++) {
       const frequency = (i / (fftSize / 2)) * nyquist;
       const magnitude = Math.abs(audioData[i]);
       weightedSum += frequency * magnitude;
       magnitudeSum += magnitude;
     }
-    
+
     return magnitudeSum > 0 ? weightedSum / magnitudeSum : 0;
   };
 
-  const extractFeatures = (audioData: Float32Array, audioContext: AudioContext): AudioFeatures | null => {
-    if (typeof Meyda === 'undefined') {
+  const extractFeatures = (
+    audioData: Float32Array,
+    audioContext: AudioContext
+  ): AudioFeatures | null => {
+    if (typeof Meyda === "undefined") {
       return null;
     }
 
@@ -84,15 +101,18 @@ const createFeatureExtractor = (config: AudioProcessorConfig) => {
       Meyda.audioContext = audioContext;
 
       const featureList: MeydaAudioFeature[] = [
-        'rms',
-        'zcr',
-        'spectralCentroid',
-        'spectralRolloff',
-        'mfcc',
-        'chroma'
+        "rms",
+        "zcr",
+        "spectralCentroid",
+        "spectralRolloff",
+        "mfcc",
+        "chroma",
       ];
 
-      const features = Meyda.extract(featureList, audioData) as MeydaFeaturesObject;
+      const features = Meyda.extract(
+        featureList,
+        audioData
+      ) as MeydaFeaturesObject;
 
       if (!features) {
         return null;
@@ -109,7 +129,7 @@ const createFeatureExtractor = (config: AudioProcessorConfig) => {
         timestamp: Date.now(),
       };
     } catch (error) {
-      console.error('Failed to extract audio features:', error);
+      console.error("Failed to extract audio features:", error);
       return null;
     }
   };
@@ -127,7 +147,7 @@ const createAudioAnalyzer = () => {
 
   const detectChords = (chroma: number[]): string[] => {
     if (!chroma || chroma.length !== 12) return [];
-    
+
     const threshold = 0.3;
     const activeNotes = chroma
       .map((value, index) => ({ value, note: index }))
@@ -136,8 +156,21 @@ const createAudioAnalyzer = () => {
 
     if (activeNotes.length >= 3) {
       const root = activeNotes[0];
-      const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-      return [notes[root] + 'maj'];
+      const notes = [
+        "C",
+        "C#",
+        "D",
+        "D#",
+        "E",
+        "F",
+        "F#",
+        "G",
+        "G#",
+        "A",
+        "A#",
+        "B",
+      ];
+      return [notes[root] + "maj"];
     }
 
     return [];
@@ -148,11 +181,14 @@ const createAudioAnalyzer = () => {
     return 120;
   };
 
-  const analyzeAudio = (timeData: Float32Array, features: AudioFeatures): AudioAnalysis => {
+  const analyzeAudio = (
+    timeData: Float32Array,
+    features: AudioFeatures
+  ): AudioAnalysis => {
     const rms = features.rms || calculateRMS(timeData);
     const volume = Math.max(0, Math.min(1, rms * 10));
     const pitch = features.spectralCentroid || 0;
-    const key = features.chroma.length > 0 ? detectKey(features.chroma) : 'C';
+    const key = features.chroma.length > 0 ? detectKey(features.chroma) : "C";
     const chords = detectChords(features.chroma);
     const tempo = estimateTempo();
 
@@ -179,46 +215,32 @@ const createMicrophoneManager = () => {
 
   const requestMicrophone = async (): Promise<MediaStream> => {
     try {
-      console.log('🎤 Requesting microphone access...');
-      
       mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
           sampleRate: AUDIO_CONFIG.SAMPLE_RATE,
-        }
+        },
       });
-
-      console.log('✅ Microphone access granted!');
-      console.log('🎵 Audio tracks:', mediaStream.getAudioTracks().map(track => ({
-        label: track.label,
-        enabled: track.enabled,
-        readyState: track.readyState
-      })));
 
       return mediaStream;
     } catch (error) {
-      console.error('❌ Failed to access microphone:', error);
+      console.error("❌ Failed to access microphone:", error);
       throw error;
     }
   };
 
-  const connectToAnalyser = (audioContext: AudioContext, analyser: AnalyserNode): void => {
+  const connectToAnalyser = (
+    audioContext: AudioContext,
+    analyser: AnalyserNode
+  ): void => {
     if (!mediaStream) {
-      throw new Error('No media stream available');
+      throw new Error("No media stream available");
     }
 
     sourceNode = audioContext.createMediaStreamSource(mediaStream);
     sourceNode.connect(analyser);
-    
-    console.log('🔗 Microphone connected to analyser');
-    console.log('📊 Analyser settings:', {
-      fftSize: analyser.fftSize,
-      frequencyBinCount: analyser.frequencyBinCount,
-      minDecibels: analyser.minDecibels,
-      maxDecibels: analyser.maxDecibels
-    });
   };
 
   const dispose = (): void => {
@@ -228,9 +250,8 @@ const createMicrophoneManager = () => {
     }
 
     if (mediaStream) {
-      mediaStream.getTracks().forEach(track => {
+      mediaStream.getTracks().forEach((track) => {
         track.stop();
-        console.log('🛑 Stopped audio track:', track.label);
       });
       mediaStream = null;
     }
@@ -242,7 +263,9 @@ const createMicrophoneManager = () => {
 };
 
 // Main AudioProcessor - Modern functional implementation
-export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => {
+export const createAudioProcessor = (
+  config?: Partial<AudioProcessorConfig>
+) => {
   const processorConfig: AudioProcessorConfig = {
     fftSize: AUDIO_CONFIG.FFT_SIZE,
     smoothingTimeConstant: 0.8,
@@ -266,48 +289,45 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
   const featureExtractor = createFeatureExtractor(processorConfig);
   const analyzer = createAudioAnalyzer();
   const microphoneManager = createMicrophoneManager();
-  
+
   let dataArray: Float32Array | null = null;
   let isProcessing = false;
   let animationFrameId: number | null = null;
   let lastUpdateTime = 0;
   let frameCount = 0;
-  
+
   // Smoothing for pitch detection
   let pitchHistory: number[] = [];
   let lastStablePitch: number | null = null;
-  
+
   let onAnalysisCallback: ((analysis: AudioAnalysis) => void) | undefined;
   let onFeaturesCallback: ((features: AudioFeatures) => void) | undefined;
 
-  const initialize = async (existingContext?: AudioContext, existingAnalyser?: AnalyserNode): Promise<void> => {
+  const initialize = async (
+    existingContext?: AudioContext,
+    existingAnalyser?: AnalyserNode
+  ): Promise<void> => {
     try {
-      console.log('🚀 Initializing AudioProcessor...');
-      
       let context: AudioContext;
       let analyser: AnalyserNode;
-      
+
       if (existingContext && existingAnalyser) {
-        console.log('📡 Using existing audio context and analyser from store');
         context = existingContext;
         analyser = existingAnalyser;
         contextManager.setExisting(context, analyser);
       } else {
-        console.log('🔧 Creating new audio context and analyser');
         const result = await contextManager.initialize(processorConfig);
         context = result.context;
         analyser = result.analyser;
-        
+
         // Request microphone access only if we created our own context
         await microphoneManager.requestMicrophone();
         microphoneManager.connectToAnalyser(context, analyser);
       }
-      
+
       dataArray = new Float32Array(analyser.frequencyBinCount);
-      
-      console.log('✅ AudioProcessor initialized successfully!');
     } catch (error) {
-      console.error('❌ Failed to initialize audio processor:', error);
+      console.error("❌ Failed to initialize audio processor:", error);
       throw error;
     }
   };
@@ -317,13 +337,11 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
     onFeatures: (features: AudioFeatures) => void
   ): void => {
     const analyser = contextManager.getAnalyser();
-    
+
     if (!analyser || !dataArray) {
-      throw new Error('AudioProcessor not initialized');
+      throw new Error("AudioProcessor not initialized");
     }
 
-    console.log('▶️ Starting audio processing...');
-    
     onAnalysisCallback = onAnalysis;
     onFeaturesCallback = onFeatures;
     isProcessing = true;
@@ -331,14 +349,12 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
   };
 
   const stop = (): void => {
-    console.log('⏹️ Stopping audio processing...');
-    
     isProcessing = false;
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
     }
-    
+
     // Reset smoothing variables
     lastUpdateTime = 0;
     frameCount = 0;
@@ -353,35 +369,31 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
 
     const analyser = contextManager.getAnalyser();
     const audioContext = contextManager.getContext();
-    
+
     if (!analyser || !audioContext || !dataArray) {
       return;
     }
 
     const currentTime = performance.now();
     frameCount++;
-    
+
     // Throttle updates to ~10 FPS instead of 60 FPS
     const shouldUpdate = currentTime - lastUpdateTime >= 100; // 100ms = 10 FPS
-    
+
     if (shouldUpdate) {
       lastUpdateTime = currentTime;
-      
+
       // Get time domain data for Meyda
       const timeData = new Float32Array(analyser.fftSize);
       analyser.getFloatTimeDomainData(timeData);
 
-      // Check for actual audio input (but don't log every frame)
-      const hasAudioInput = timeData.some(sample => Math.abs(sample) > 0.001);
-      
-      if (hasAudioInput && frameCount % 60 === 0) { // Log only once per second
-        console.log('🎵 Audio input detected! RMS:', Math.sqrt(timeData.reduce((sum, val) => sum + val * val, 0) / timeData.length));
-      }
-
       try {
         // Extract features
-        const features = featureExtractor.extractFeatures(timeData, audioContext);
-        
+        const features = featureExtractor.extractFeatures(
+          timeData,
+          audioContext
+        );
+
         if (features && onFeaturesCallback) {
           onFeaturesCallback(features);
         }
@@ -389,22 +401,26 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
         // Perform higher-level analysis with pitch smoothing
         if (features) {
           const analysis = analyzer.analyzeAudio(timeData, features);
-          
+
           // Smooth pitch detection
           if (analysis.pitch && analysis.pitch > 0) {
             pitchHistory.push(analysis.pitch);
-            
+
             // Keep only last 5 pitch values for smoothing
             if (pitchHistory.length > 5) {
               pitchHistory.shift();
             }
-            
+
             // Calculate median pitch for stability
             const sortedPitches = [...pitchHistory].sort((a, b) => a - b);
-            const medianPitch = sortedPitches[Math.floor(sortedPitches.length / 2)];
-            
+            const medianPitch =
+              sortedPitches[Math.floor(sortedPitches.length / 2)];
+
             // Only update if pitch is stable (within 3% of median for more responsiveness)
-            if (!lastStablePitch || Math.abs(medianPitch - lastStablePitch) / lastStablePitch > 0.03) {
+            if (
+              !lastStablePitch ||
+              Math.abs(medianPitch - lastStablePitch) / lastStablePitch > 0.03
+            ) {
               lastStablePitch = medianPitch;
               analysis.pitch = medianPitch;
               onAnalysisCallback?.(analysis);
@@ -417,7 +433,7 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
           }
         }
       } catch (error) {
-        console.warn('⚠️ Audio analysis error:', error);
+        console.warn("⚠️ Audio analysis error:", error);
       }
     }
 
@@ -428,14 +444,14 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
   const getFeatures = (): AudioFeatures | null => {
     const audioContext = contextManager.getContext();
     const analyser = contextManager.getAnalyser();
-    
+
     if (!isProcessing || !audioContext || !analyser) {
       return null;
     }
 
     const timeData = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(timeData);
-    
+
     return featureExtractor.extractFeatures(timeData, audioContext);
   };
 
@@ -446,8 +462,8 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
   const getConfig = (): AudioProcessorConfig => ({ ...processorConfig });
 
   const dispose = (): void => {
-    console.log('🧹 Disposing AudioProcessor...');
-    
+    console.log("🧹 Disposing AudioProcessor...");
+
     stop();
     microphoneManager.dispose();
     contextManager.dispose();
@@ -463,7 +479,7 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
     getFeatures,
     setConfig,
     getConfig,
-    dispose
+    dispose,
   };
 };
 
@@ -477,7 +493,10 @@ export class AudioProcessor {
     }
   }
 
-  async initialize(existingContext?: AudioContext, existingAnalyser?: AnalyserNode): Promise<void> {
+  async initialize(
+    existingContext?: AudioContext,
+    existingAnalyser?: AnalyserNode
+  ): Promise<void> {
     return this.processor.initialize(existingContext, existingAnalyser);
   }
 
