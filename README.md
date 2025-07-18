@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Project Vision
+To build an AI-powered musical companion application that acts as an interactive partner for a musician during a live performance. The app will listen to the music being created in real-time, offer intelligent suggestions for arrangement (like adding bass or drums), and provide feedback through a cute, animated avatar. The user interface should be simple, intuitive, and designed for hands-free use.
 
-## Getting Started
+Core Features
+Animated UI: The central interface is a friendly, animated character that dances to the music and visually communicates feedback and suggestions.
 
-First, run the development server:
+Real-Time Audio Analysis: The app will use the device microphone to listen to and analyze brand-new music as it's being played. It needs to identify key musical elements such as:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Chord progressions
+
+Tempo (BPM)
+
+Key signature
+
+Intelligent Music Suggestions: Based on its analysis of the user's playing, the app will proactively suggest musical enhancements. For example, it might ask, "Want to add some drums?"
+
+Interactive Auditioning: When a suggestion is made, the app will generate and play several variations for the user to hear (e.g., three distinct drum patterns).
+
+AI-Powered Feedback Loop: The user can then try to play along with or perform their own version of a suggested part. The app will listen, analyze the user's performance, and select the "best" take based on criteria like rhythmic stability and stylistic fit. The avatar will then react positively to the chosen take.
+
+Voice-Activated Controls: The primary method of interaction should be voice commands (e.g., "Yes, add drums") to ensure a seamless experience for the musician while they are playing.
+
+Technical Requirements
+The application will need to integrate several types of AI services via APIs:
+
+Real-Time Audio Analysis: An API capable of processing a live audio stream to extract musical data (chords, tempo, key). This is for analyzing original music, not recognizing existing songs.
+
+AI Music Generation: An API to create short, original musical loops on demand (e.g., bass lines, drum beats) based on genre, key, and tempo parameters.
+
+Instrument Separation (Stem Splitting): An API to isolate specific instrument tracks from an audio mix for more detailed analysis.
+
+
+
+
+
+## Comprehensive Development Plan
+
+### Phase 2: AI Integration & Avatar System (Week 3-4)
 ```
+1. Avatar System
+   - Animated character using CSS animations 
+   or Lottie
+   - Emotion states and reactions
+   - Voice synthesis for feedback
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. AI Service Integration
+   - Audio analysis API integration
+   - Music generation API setup
+   - Voice recognition system
+   - Intelligent suggestion engine
+```
+### Phase 3: Advanced Features & Polish (Week 5-6)
+```
+1. Advanced Audio Features
+   - Chord progression detection
+   - Tempo and key analysis
+   - Instrument separation
+   - Performance evaluation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. User Experience
+   - Voice commands
+   - Gesture controls
+   - Session management
+   - Settings and preference
+```
