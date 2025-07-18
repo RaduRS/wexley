@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { RealtimeState, ChatMessage } from '@/types';
+import { useAvatarStore } from './avatarStore';
+import type { CompanionEmotion } from './avatarStore';
 
 interface RealtimeStore extends RealtimeState {
   // Connection management
@@ -25,6 +27,7 @@ interface RealtimeStore extends RealtimeState {
   // Audio processing
   processAudioBlob: (audioBlob: Blob) => Promise<void>;
   sendToOpenAI: (transcript: string) => Promise<void>;
+  parseAvatarInstructions: (response: string) => void;
   
   // Audio recording
   mediaRecorder: MediaRecorder | null;
@@ -292,6 +295,10 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       console.log('Sending to OpenAI:', transcript);
       const state = get();
       
+      // Trigger avatar reaction to user input
+      const avatarStore = useAvatarStore.getState();
+      avatarStore.reactToUserInput('voice', transcript);
+      
       // Add user message
       state.addMessage({
         role: 'user',
@@ -302,6 +309,9 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       const conversation = state.conversation
         .filter(msg => !msg.isStreaming)
         .map(msg => ({ role: msg.role, content: msg.content }));
+
+      // Trigger thinking state
+      avatarStore.reactToAIResponse('thinking');
 
       // Start streaming response
       const response = await fetch('/api/openai/chat/stream', {
@@ -325,6 +335,10 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       }
 
       const decoder = new TextDecoder();
+      let fullResponse = '';
+      
+      // Trigger speaking state when response starts
+      avatarStore.reactToAIResponse('speaking');
       
       while (true) {
         const { done, value } = await reader.read();
@@ -340,9 +354,16 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
               const data = JSON.parse(line.slice(6));
               
               if (data.content) {
+                fullResponse += data.content;
                 state.updateStreamingMessage(data.content);
               } else if (data.done) {
                 state.finishStreamingMessage();
+                
+                // Parse avatar instructions from the complete response
+                state.parseAvatarInstructions(fullResponse);
+                
+                // Trigger finished state
+                avatarStore.reactToAIResponse('finished');
               }
             } catch (e) {
               // Ignore parsing errors for incomplete chunks
@@ -355,6 +376,46 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       console.error('Error sending to OpenAI:', error);
       const state = get();
       state.setError('Failed to get AI response');
+      
+      // Show concern on error
+      const avatarStore = useAvatarStore.getState();
+      avatarStore.showConcern();
+    }
+  },
+
+  // Parse avatar instructions from AI response
+  parseAvatarInstructions: (response: string) => {
+    const avatarMatch = response.match(/\[AVATAR:\s*(\w+)\]/i);
+    if (avatarMatch) {
+      const emotion = avatarMatch[1].toLowerCase() as CompanionEmotion;
+      const avatarStore = useAvatarStore.getState();
+      
+      // Validate emotion exists
+      const validEmotions: CompanionEmotion[] = [
+        'neutral', 'excited', 'listening', 'thinking', 'dancing', 'suggesting',
+        'speaking', 'processing', 'understanding', 'empathetic', 'curious',
+        'helpful', 'encouraging', 'celebrating', 'concerned', 'focused'
+      ];
+      
+      if (validEmotions.includes(emotion)) {
+        avatarStore.setEmotion(emotion);
+        avatarStore.startAnimation();
+        
+        // Clean up the response by removing avatar instructions
+        const cleanResponse = response.replace(/\[AVATAR:\s*\w+\]/gi, '').trim();
+        
+        // Update the last message with clean content
+        set(state => {
+          const conversation = [...state.conversation];
+          const lastMessage = conversation[conversation.length - 1];
+          
+          if (lastMessage && lastMessage.role === 'assistant') {
+            lastMessage.content = cleanResponse;
+          }
+          
+          return { conversation };
+        });
+      }
     }
   },
 }));

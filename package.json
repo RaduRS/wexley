@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@deepgram/sdk": "^4.9.1",
+    "@react-three/drei": "^10.5.1",
+    "@react-three/fiber": "^9.2.0",
+    "@types/three": "^0.178.1",
     "clsx": "^2.0.0",
     "framer-motion": "^11.0.0",
     "lucide-react": "^0.460.0",
@@ -19,6 +22,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "tailwind-merge": "^2.2.0",
+    "three": "^0.178.0",
     "tone": "^14.7.77",
     "zustand": "^4.4.7"
   },

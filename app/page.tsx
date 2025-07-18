@@ -1,40 +1,54 @@
 'use client';
 
-import { Avatar } from '@/components/avatar';
-import { AudioControls, AudioVisualizer } from '@/components/audio';
+import { useEffect } from 'react';
+import { Avatar3D } from '@/components/avatar';
+import { AudioControls } from '@/components/audio';
+import { AudioVisualizer } from '@/components/audio/AudioVisualizer';
 import { RealtimeChat } from '@/components/chat';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
-import { useAudioStore, useAvatarStore } from '@/stores';
-import { useAudioProcessor } from '@/hooks';
-import { useEffect } from 'react';
+import { useAudioStore } from '@/stores/audioStore';
+import { useAvatarStore } from '@/stores/avatarStore';
+import { useAudioProcessor } from '@/hooks/useAudioProcessor';
 
 export default function Home() {
   const { analysis } = useAudioStore();
-  const { setEmotion, setAnimation } = useAvatarStore();
+  const { setEmotion, setAnimation, emotion, startAnimation } = useAvatarStore();
   const { isRecording } = useAudioProcessor();
 
-  // Dynamic avatar emotion based on audio
+  // Dynamic avatar emotion based on audio - less aggressive, more natural
   useEffect(() => {
-    if (analysis) {
+    if (analysis && isRecording) {
       const { volume } = analysis;
-      if (volume > 50) {
+      // Only change emotions for significant volume changes during recording
+      if (volume > 70) {
         setEmotion('excited');
-      } else if (volume > 20) {
+        startAnimation();
+      } else if (volume > 30) {
         setEmotion('listening');
-      } else {
-        setEmotion('neutral');
+        startAnimation();
       }
+      // Don't force neutral during recording - let the avatar stay engaged
     }
-  }, [analysis, setEmotion]);
+  }, [analysis, setEmotion, startAnimation, isRecording]);
 
   // Control avatar animation based on recording state
   useEffect(() => {
     if (isRecording) {
+      setEmotion('listening');
       setAnimation('dancing');
+      startAnimation();
     } else {
-      setAnimation('idle');
+      // When stopping recording, transition to neutral more naturally
+      // The debouncing system will handle the timing
+      setEmotion('neutral');
+      setAnimation('dancing');
     }
-  }, [isRecording, setAnimation]);
+  }, [isRecording, setAnimation, setEmotion, startAnimation]);
+
+  const handleAvatarClick = () => {
+    // Just trigger a small animation, don't change emotion
+    startAnimation();
+  };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
@@ -54,14 +68,27 @@ export default function Home() {
           {/* Avatar Section */}
           <Card className="flex flex-col items-center justify-center p-8">
             <CardHeader className="text-center">
-              <CardTitle>Your Musical Companion</CardTitle>
-              <p className="text-sm text-gray-600">
-                Click the avatar to change emotions
+              <CardTitle>Your AI Companion</CardTitle>
+              <p className="text-sm text-gray-600 mb-4">
+                Interactive 3D avatar that responds to conversations and audio
               </p>
             </CardHeader>
             <CardContent className="flex-1 flex items-center justify-center">
-              <Avatar size="xl" />
+              <div 
+                onClick={handleAvatarClick} 
+                className="cursor-pointer transition-all duration-300 hover:scale-105"
+              >
+                <Avatar3D size="xl" />
+              </div>
             </CardContent>
+            <div className="text-center mt-4">
+              <p className="text-sm text-gray-600">
+                Current emotion: <span className="font-semibold text-blue-600">{emotion}</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {isRecording ? 'Listening to audio...' : 'Responds to AI conversations and audio input'}
+              </p>
+            </div>
           </Card>
 
           {/* Real-time Chat Section */}

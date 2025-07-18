@@ -1,5 +1,7 @@
 export interface AvatarState {
-  emotion: 'neutral' | 'excited' | 'listening' | 'thinking' | 'dancing' | 'suggesting';
+  emotion: 'neutral' | 'excited' | 'listening' | 'thinking' | 'dancing' | 'suggesting' 
+    | 'speaking' | 'processing' | 'understanding' | 'empathetic' | 'curious'
+    | 'helpful' | 'encouraging' | 'celebrating' | 'concerned' | 'focused';
   isAnimating: boolean;
   currentAnimation: string;
   scale: number;
