@@ -403,8 +403,8 @@ export const createAudioProcessor = (config?: Partial<AudioProcessorConfig>) => 
             const sortedPitches = [...pitchHistory].sort((a, b) => a - b);
             const medianPitch = sortedPitches[Math.floor(sortedPitches.length / 2)];
             
-            // Only update if pitch is stable (within 10% of median)
-            if (!lastStablePitch || Math.abs(medianPitch - lastStablePitch) / lastStablePitch > 0.1) {
+            // Only update if pitch is stable (within 3% of median for more responsiveness)
+            if (!lastStablePitch || Math.abs(medianPitch - lastStablePitch) / lastStablePitch > 0.03) {
               lastStablePitch = medianPitch;
               analysis.pitch = medianPitch;
               onAnalysisCallback?.(analysis);
