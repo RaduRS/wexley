@@ -2,6 +2,7 @@
 
 import { Avatar } from '@/components/avatar';
 import { AudioControls, AudioVisualizer } from '@/components/audio';
+import { RealtimeChat } from '@/components/chat';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { useAudioStore, useAvatarStore } from '@/stores';
 import { useAudioProcessor } from '@/hooks';
@@ -49,7 +50,7 @@ export default function Home() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Avatar Section */}
           <Card className="flex flex-col items-center justify-center p-8">
             <CardHeader className="text-center">
@@ -63,7 +64,16 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          {/* Audio Analysis Section */}
+          {/* Real-time Chat Section */}
+          <Card className="lg:col-span-2">
+            <CardContent className="h-96">
+              <RealtimeChat className="h-full" />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Audio Analysis Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
           <Card>
             <CardHeader>
               <CardTitle>Audio Analysis</CardTitle>
@@ -109,10 +119,8 @@ export default function Home() {
               )}
             </CardContent>
           </Card>
-        </div>
 
-        {/* Additional Visualizers */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+          {/* Waveform Visualization */}
           <Card>
             <CardHeader>
               <CardTitle>Waveform</CardTitle>
@@ -121,54 +129,49 @@ export default function Home() {
               <AudioVisualizer type="waveform" color="#10b981" className="h-32" />
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Circular Visualization</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AudioVisualizer type="circular" color="#f59e0b" className="h-32" />
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Phase 1 Status */}
+        {/* Phase 2 Status */}
         <Card className="mt-8">
           <CardHeader>
-            <CardTitle>Phase 1: Foundation Complete ✅</CardTitle>
+            <CardTitle>Phase 2: Real-time AI Integration ✅</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
               <div className="space-y-2">
-                <h4 className="font-medium text-green-600">✅ Architecture</h4>
+                <h4 className="font-medium text-green-600">✅ Foundation</h4>
                 <ul className="space-y-1 text-gray-600">
                   <li>• Clean project structure</li>
                   <li>• TypeScript types</li>
-                  <li>• Separation of concerns</li>
+                  <li>• Audio system</li>
+                  <li>• Avatar system</li>
                 </ul>
               </div>
               <div className="space-y-2">
-                <h4 className="font-medium text-green-600">✅ Audio System</h4>
+                <h4 className="font-medium text-green-600">✅ Real-time Transcription</h4>
                 <ul className="space-y-1 text-gray-600">
-                  <li>• Web Audio API integration</li>
-                  <li>• Real-time processing</li>
-                  <li>• Multiple visualizations</li>
+                  <li>• Deepgram WebSocket integration</li>
+                  <li>• Live audio streaming</li>
+                  <li>• Voice activity detection</li>
+                  <li>• Real-time transcript display</li>
                 </ul>
               </div>
               <div className="space-y-2">
-                <h4 className="font-medium text-green-600">✅ Avatar System</h4>
+                <h4 className="font-medium text-green-600">✅ AI Chat System</h4>
                 <ul className="space-y-1 text-gray-600">
-                  <li>• Animated character</li>
-                  <li>• Emotion states</li>
-                  <li>• Reactive animations</li>
+                  <li>• OpenAI GPT-4o-mini integration</li>
+                  <li>• Streaming responses</li>
+                  <li>• Conversation management</li>
+                  <li>• Auto-send on speech end</li>
                 </ul>
               </div>
               <div className="space-y-2">
-                <h4 className="font-medium text-blue-600">🚀 Next: Phase 2</h4>
+                <h4 className="font-medium text-blue-600">🚀 Next: Phase 3</h4>
                 <ul className="space-y-1 text-gray-600">
-                  <li>• AI integration</li>
-                  <li>• Voice commands</li>
-                  <li>• Music suggestions</li>
+                  <li>• Music-specific AI prompts</li>
+                  <li>• Audio analysis integration</li>
+                  <li>• Smart suggestions</li>
+                  <li>• Enhanced avatar reactions</li>
                 </ul>
               </div>
             </div>

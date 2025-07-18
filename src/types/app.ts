@@ -37,3 +37,37 @@ export interface AppSettings {
     autoPlay: boolean;
   };
 }
+
+export interface TranscriptMessage {
+  id: string;
+  transcript: string;
+  isFinal: boolean;
+  confidence: number;
+  timestamp: Date;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  isStreaming?: boolean;
+}
+
+export interface RealtimeState {
+  isConnected: boolean;
+  isTranscribing: boolean;
+  isSpeaking: boolean;
+  currentTranscript: string;
+  finalTranscript: string;
+  conversation: ChatMessage[];
+  error: string | null;
+}
+
+export interface DeepgramEvent {
+  type: 'transcript' | 'speech_started' | 'utterance_end' | 'error';
+  transcript?: string;
+  isFinal?: boolean;
+  confidence?: number;
+  error?: string;
+}
