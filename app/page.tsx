@@ -1,19 +1,18 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { Avatar3D } from '@/components/avatar';
-import { AudioControls } from '@/components/audio';
-import { AudioVisualizer } from '@/components/audio/AudioVisualizer';
-import { RealtimeChat } from '@/components/chat';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
-import { useAudioStore } from '@/stores/audioStore';
-import { useAvatarStore } from '@/stores/avatarStore';
-import { useAudioProcessor } from '@/hooks/useAudioProcessor';
+import { useEffect, useState } from "react";
+import { SimpleAvatar } from "@/components/avatar";
+import { AudioControls } from "@/components/audio";
+import { AudioVisualizer } from "@/components/audio/AudioVisualizer";
+import { RealtimeChat } from "@/components/chat";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
+import { useAudioStore } from "@/stores/audioStore";
+import { useAvatarStore } from "@/stores/avatarStore";
+import { useAudioProcessor } from "@/hooks/useAudioProcessor";
 
 export default function Home() {
-  const { analysis } = useAudioStore();
-  const { setEmotion, setAnimation, emotion, startAnimation } = useAvatarStore();
-  const { isRecording } = useAudioProcessor();
+  const { emotion, isAnimating, startAnimation, setEmotion, setAnimation } = useAvatarStore();
+  const { isRecording, analysis } = useAudioStore();
 
   // Dynamic avatar emotion based on audio - less aggressive, more natural
   useEffect(() => {
@@ -21,10 +20,10 @@ export default function Home() {
       const { volume } = analysis;
       // Only change emotions for significant volume changes during recording
       if (volume > 70) {
-        setEmotion('excited');
+        setEmotion("excited");
         startAnimation();
       } else if (volume > 30) {
-        setEmotion('listening');
+        setEmotion("listening");
         startAnimation();
       }
       // Don't force neutral during recording - let the avatar stay engaged
@@ -34,14 +33,14 @@ export default function Home() {
   // Control avatar animation based on recording state
   useEffect(() => {
     if (isRecording) {
-      setEmotion('listening');
-      setAnimation('dancing');
+      setEmotion("listening");
+      setAnimation("dancing");
       startAnimation();
     } else {
       // When stopping recording, transition to neutral more naturally
       // The debouncing system will handle the timing
-      setEmotion('neutral');
-      setAnimation('dancing');
+      setEmotion("neutral");
+      setAnimation("dancing");
     }
   }, [isRecording, setAnimation, setEmotion, startAnimation]);
 
@@ -70,23 +69,24 @@ export default function Home() {
             <CardHeader className="text-center">
               <CardTitle>Your AI Companion</CardTitle>
               <p className="text-sm text-gray-600 mb-4">
-                Interactive 3D avatar that responds to conversations and audio
+                Interactive avatar that responds to conversations and audio
               </p>
             </CardHeader>
-            <CardContent className="flex-1 flex items-center justify-center">
-              <div 
-                onClick={handleAvatarClick} 
-                className="cursor-pointer transition-all duration-300 hover:scale-105"
+            <CardContent className="flex-1 flex items-center justify-center h-full w-full">
+              <div
+                onClick={handleAvatarClick}
+                className="cursor-pointer transition-all duration-300 hover:scale-105 flex items-center justify-center"
               >
-                <Avatar3D size="xl" />
+                <SimpleAvatar size="xl" />
               </div>
             </CardContent>
             <div className="text-center mt-4">
               <p className="text-sm text-gray-600">
-                Current emotion: <span className="font-semibold text-blue-600">{emotion}</span>
+                Current emotion:{" "}
+                <span className="font-semibold text-blue-600">{emotion}</span>
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {isRecording ? 'Listening to audio...' : 'Responds to AI conversations and audio input'}
+                Click the orb to spin it!
               </p>
             </div>
           </Card>
@@ -111,10 +111,10 @@ export default function Home() {
             <CardContent className="space-y-6">
               {/* Audio Controls */}
               <AudioControls />
-              
+
               {/* Audio Visualizer */}
               <AudioVisualizer type="frequency" className="h-48" />
-              
+
               {/* Analysis Data */}
               {analysis && (
                 <div className="grid grid-cols-2 gap-4 text-sm">
@@ -153,7 +153,11 @@ export default function Home() {
               <CardTitle>Waveform</CardTitle>
             </CardHeader>
             <CardContent>
-              <AudioVisualizer type="waveform" color="#10b981" className="h-32" />
+              <AudioVisualizer
+                type="waveform"
+                color="#10b981"
+                className="h-32"
+              />
             </CardContent>
           </Card>
         </div>
@@ -175,7 +179,9 @@ export default function Home() {
                 </ul>
               </div>
               <div className="space-y-2">
-                <h4 className="font-medium text-green-600">✅ Real-time Transcription</h4>
+                <h4 className="font-medium text-green-600">
+                  ✅ Real-time Transcription
+                </h4>
                 <ul className="space-y-1 text-gray-600">
                   <li>• Deepgram WebSocket integration</li>
                   <li>• Live audio streaming</li>
@@ -184,7 +190,9 @@ export default function Home() {
                 </ul>
               </div>
               <div className="space-y-2">
-                <h4 className="font-medium text-green-600">✅ AI Chat System</h4>
+                <h4 className="font-medium text-green-600">
+                  ✅ AI Chat System
+                </h4>
                 <ul className="space-y-1 text-gray-600">
                   <li>• OpenAI GPT-4o-mini integration</li>
                   <li>• Streaming responses</li>

@@ -383,9 +383,33 @@ export const createAudioProcessor = (
     if (shouldUpdate) {
       lastUpdateTime = currentTime;
 
-      // Get time domain data for Meyda
-      const timeData = new Float32Array(analyser.fftSize);
-      analyser.getFloatTimeDomainData(timeData);
+      // Get time domain data from analyser (limited by fftSize)
+      const analyserTimeData = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(analyserTimeData);
+
+      // Resize to match Meyda's expected buffer size
+      let timeData: Float32Array;
+      if (analyserTimeData.length === processorConfig.bufferSize) {
+        timeData = analyserTimeData;
+      } else if (analyserTimeData.length > processorConfig.bufferSize) {
+        // Downsample if analyser data is larger
+        timeData = new Float32Array(processorConfig.bufferSize);
+        const step = analyserTimeData.length / processorConfig.bufferSize;
+        for (let i = 0; i < processorConfig.bufferSize; i++) {
+          timeData[i] = analyserTimeData[Math.floor(i * step)];
+        }
+      } else {
+        // Upsample if analyser data is smaller
+        timeData = new Float32Array(processorConfig.bufferSize);
+        const step = processorConfig.bufferSize / analyserTimeData.length;
+        for (let i = 0; i < analyserTimeData.length; i++) {
+          const startIdx = Math.floor(i * step);
+          const endIdx = Math.min(Math.floor((i + 1) * step), processorConfig.bufferSize);
+          for (let j = startIdx; j < endIdx; j++) {
+            timeData[j] = analyserTimeData[i];
+          }
+        }
+      }
 
       try {
         // Extract features
@@ -449,8 +473,33 @@ export const createAudioProcessor = (
       return null;
     }
 
-    const timeData = new Float32Array(analyser.fftSize);
-    analyser.getFloatTimeDomainData(timeData);
+    // Get time domain data from analyser (limited by fftSize)
+    const analyserTimeData = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(analyserTimeData);
+
+    // Resize to match Meyda's expected buffer size
+    let timeData: Float32Array;
+    if (analyserTimeData.length === processorConfig.bufferSize) {
+      timeData = analyserTimeData;
+    } else if (analyserTimeData.length > processorConfig.bufferSize) {
+      // Downsample if analyser data is larger
+      timeData = new Float32Array(processorConfig.bufferSize);
+      const step = analyserTimeData.length / processorConfig.bufferSize;
+      for (let i = 0; i < processorConfig.bufferSize; i++) {
+        timeData[i] = analyserTimeData[Math.floor(i * step)];
+      }
+    } else {
+      // Upsample if analyser data is smaller
+      timeData = new Float32Array(processorConfig.bufferSize);
+      const step = processorConfig.bufferSize / analyserTimeData.length;
+      for (let i = 0; i < analyserTimeData.length; i++) {
+        const startIdx = Math.floor(i * step);
+        const endIdx = Math.min(Math.floor((i + 1) * step), processorConfig.bufferSize);
+        for (let j = startIdx; j < endIdx; j++) {
+          timeData[j] = analyserTimeData[i];
+        }
+      }
+    }
 
     return featureExtractor.extractFeatures(timeData, audioContext);
   };

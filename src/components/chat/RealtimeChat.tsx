@@ -3,7 +3,9 @@ import { useRealtimeStore } from "@/stores";
 import { useAudioStore } from "@/stores/audioStore";
 import { useAudioProcessor } from "@/hooks/useAudioProcessor";
 import { cn } from "@/utils";
-import { Mic, MicOff, MessageSquare, Loader2, Volume2 } from "lucide-react";
+import { Mic, MicOff, MessageSquare, Loader2 } from "lucide-react";
+import { createMusicAnalyzer, formatMusicAnalysisForAI, type MusicAnalysis } from '@/utils/musicAnalyzer';
+import { musicCompanion } from '@/utils/musicCompanion';
 
 interface RealtimeChatProps {
   className?: string;
@@ -34,6 +36,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState("");
+  const [currentMusicAnalysis, setCurrentMusicAnalysis] = useState<MusicAnalysis | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -144,7 +147,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
 
     try {
       setIsProcessingVoice(true);
-      setCurrentTranscript("Processing...");
+      setCurrentTranscript("Analyzing audio...");
 
       // Validate audio blob
       if (!audioBlob || audioBlob.size === 0) {
@@ -154,13 +157,54 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
         return;
       }
 
-      // Convert blob to base64
+      // Convert blob to audio buffer for analysis
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const base64Audio = btoa(
-        String.fromCharCode(...new Uint8Array(arrayBuffer))
-      );
+      const audioContext = new AudioContext();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      const audioData = audioBuffer.getChannelData(0);
 
-      // Send to Deepgram
+      // Get current audio features from the audio processor
+      const features = currentAnalysis ? {
+        spectralCentroid: currentAnalysis.spectralCentroid,
+        spectralRolloff: currentAnalysis.spectralRolloff,
+        rms: currentAnalysis.volume,
+        zcr: 0.1, // Default value, would need to calculate from audioData
+        mfcc: [], // Would need to extract from audioData
+        chroma: [], // Would need to extract from audioData
+        spectralBandwidth: 0,
+        timestamp: Date.now()
+      } : undefined;
+
+      // Advanced music companion analysis
+      let companionAnalysis = null;
+      if (features) {
+        companionAnalysis = musicCompanion.analyzePerformance(audioData, features, audioBuffer.sampleRate);
+        console.log("Music Companion Analysis:", companionAnalysis);
+      }
+
+      // Basic music analysis (fallback)
+      const musicAnalyzer = createMusicAnalyzer();
+      const musicAnalysis = musicAnalyzer.analyzeAudio(audioData, audioBuffer.sampleRate);
+      setCurrentMusicAnalysis(musicAnalysis);
+
+      console.log("Audio analysis:", musicAnalysis);
+
+      // Always try to transcribe first to get what the user said
+      setCurrentTranscript("Processing audio...");
+      
+      // Convert blob to base64 for Deepgram safely for large files
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Convert to base64 in chunks to avoid stack overflow
+      let base64Audio = '';
+      const chunkSize = 8192; // Process in 8KB chunks
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+      }
+
+      // Send to Deepgram for transcription
       const response = await fetch("/api/deepgram/realtime", {
         method: "POST",
         headers: {
@@ -176,23 +220,76 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
       const data = await response.json();
       console.log("Transcription result:", data);
 
-      if (data.transcript && data.transcript.trim()) {
-        setCurrentTranscript(data.transcript);
-        // Send to OpenAI - but don't await to prevent blocking
-        sendToOpenAI(data.transcript).catch((error) => {
+      // Determine what to send to AI based on advanced analysis
+      let promptToSend = "";
+      let displayText = "";
+      
+      if (companionAnalysis) {
+        // Use advanced music companion analysis
+        const { voice, instruments, overall } = companionAnalysis;
+        
+        if (voice.isVoiceDetected && data.transcript && data.transcript.trim()) {
+          // Voice detected with transcript
+          const voiceType = voice.isSinging ? "singing" : "speaking";
+          displayText = `${voiceType}: "${data.transcript}"`;
+          
+          if (instruments.instruments.length > 0 && instruments.instruments[0] !== 'unknown') {
+            // Voice + instruments
+            displayText += ` + ${instruments.instruments.join(', ')}`;
+            const musicDescription = musicCompanion.formatForAI(companionAnalysis);
+            promptToSend = `I'm ${voiceType} "${data.transcript.trim()}" while playing ${instruments.instruments.join(' and ')}. Here's the musical analysis:\n${musicDescription}\n\nAs my music companion, what do you think? Give me specific feedback about my performance and any suggestions for improvement.`;
+          } else {
+            // Just voice
+            promptToSend = `I'm ${voiceType}: "${data.transcript.trim()}". ${voice.isSinging ? `My pitch is ${voice.pitch.toFixed(1)}Hz with ${(voice.pitchStability * 100).toFixed(0)}% stability. ` : ''}What do you think?`;
+          }
+        } else if (instruments.instruments.length > 0 && instruments.instruments[0] !== 'unknown') {
+          // Just instruments, no clear voice
+          displayText = `Playing: ${instruments.instruments.join(', ')}`;
+          const musicDescription = musicCompanion.formatForAI(companionAnalysis);
+          promptToSend = `I'm playing ${instruments.instruments.join(' and ')}. Here's the musical analysis:\n${musicDescription}\n\nAs my music companion, what do you think about this performance? Any suggestions?`;
+        } else {
+          // Fallback to basic analysis
+          displayText = "Audio detected";
+          promptToSend = "I just played something. What do you think?";
+        }
+      } else {
+        // Fallback to original logic if companion analysis fails
+        if (musicAnalysis.isMusicDetected && musicAnalysis.confidence > 0.3) {
+          const musicDescription = formatMusicAnalysisForAI(musicAnalysis);
+          
+          if (data.transcript && data.transcript.trim()) {
+            displayText = `Voice + Music: "${data.transcript}"`;
+            promptToSend = `I'm ${data.transcript.trim()} while playing music. ${musicDescription}. What do you think about this combination?`;
+          } else {
+            displayText = "Music detected";
+            promptToSend = `I'm playing some music. ${musicDescription}. What do you think about this music? Keep it short and conversational.`;
+          }
+        } else if (data.transcript && data.transcript.trim()) {
+          displayText = data.transcript;
+          promptToSend = data.transcript.trim();
+        } else {
+          displayText = "No clear audio detected";
+          setTimeout(() => setCurrentTranscript(""), 2000);
+          return;
+        }
+      }
+
+      setCurrentTranscript(displayText);
+
+      // Send to OpenAI
+      if (promptToSend) {
+        sendToOpenAI(promptToSend).catch((error) => {
           console.error("OpenAI error:", error);
           setError("Failed to get AI response");
         });
-        // Clear transcript after a delay
-        setTimeout(() => setCurrentTranscript(""), 3000);
-      } else {
-        setCurrentTranscript("No speech detected");
-        setTimeout(() => setCurrentTranscript(""), 2000);
       }
+      
+      // Clear transcript after a delay
+      setTimeout(() => setCurrentTranscript(""), 3000);
     } catch (error) {
-      console.error("Error processing voice:", error);
-      setError("Failed to process voice");
-      setCurrentTranscript("Error processing voice");
+      console.error("Error processing audio:", error);
+      setError("Failed to process audio");
+      setCurrentTranscript("Error processing audio");
       setTimeout(() => setCurrentTranscript(""), 2000);
     } finally {
       setIsProcessingVoice(false);
@@ -282,79 +379,71 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
         </div>
       )}
 
-      {/* Voice Activity Status */}
+      {/* Compact Voice Activity Status */}
       {isRecording && (
-        <div className="p-3 bg-blue-50 border-b">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm">
+        <div className="px-3 py-2 bg-blue-50 border-b">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
               {isProcessingVoice ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                  <span className="text-blue-600">Processing speech...</span>
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                  <span className="text-blue-600">Analyzing...</span>
                 </>
               ) : isRecordingVoiceRef.current ? (
                 <>
                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                  <span className="text-red-600 font-medium">
-                    Recording speech...
-                  </span>
+                  <span className="text-red-600">Recording</span>
                 </>
               ) : isVoiceActive ? (
                 <>
                   <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-                  <span className="text-orange-600">Voice detected...</span>
+                  <span className="text-orange-600">Audio detected</span>
                 </>
               ) : (
                 <>
                   <div className="w-2 h-2 bg-gray-400 rounded-full" />
-                  <span className="text-gray-600">Listening...</span>
+                  <span className="text-gray-600">Listening</span>
                 </>
+              )}
+
+              {/* Music/Voice indicator */}
+              {currentMusicAnalysis && (
+                <span className="text-gray-500">
+                  {currentMusicAnalysis.isMusicDetected ? (
+                    <>🎵 Music ({Math.round(currentMusicAnalysis.confidence * 100)}%)</>
+                  ) : (
+                    <>🎤 Voice</>
+                  )}
+                </span>
               )}
             </div>
 
-            {/* Audio Level Indicator */}
+            {/* Audio Level */}
             {currentAnalysis && (
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <Volume2 className="w-3 h-3" />
-                <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="flex items-center gap-1">
+                <div className="w-12 h-1 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className={cn(
                       "h-full transition-all duration-100",
-                      currentAnalysis.volume > 0.15
-                        ? "bg-green-500"
-                        : "bg-gray-400"
+                      currentAnalysis.volume > 0.15 ? "bg-green-500" : "bg-gray-400"
                     )}
                     style={{
                       width: `${Math.min(currentAnalysis.volume * 200, 100)}%`,
                     }}
                   />
                 </div>
-                <span className="w-12 text-right">
+                <span className="text-gray-500 w-8">
                   {Math.round(currentAnalysis.volume * 100)}%
                 </span>
               </div>
             )}
           </div>
 
-          {/* Current transcript */}
+          {/* Current transcript - only show when processing or has content */}
           {currentTranscript && (
-            <div className="mt-2 p-2 bg-white rounded border text-sm">
-              <span className="text-gray-500">
-                {isProcessingVoice ? "Processing: " : "Transcribed: "}
-              </span>
-              <span className="text-gray-800">{currentTranscript}</span>
-            </div>
-          )}
-
-          {/* Debug info */}
-          {currentAnalysis && (
-            <div className="mt-2 text-xs text-gray-500">
-              Threshold: 15% | Current:{" "}
-              {Math.round(currentAnalysis.volume * 100)}% |
-              {currentAnalysis.volume > 0.15
-                ? " 🎤 Voice detected"
-                : " 🔇 Below threshold"}
-              {isProcessingVoice && " | ⚙️ Processing..."}
+            <div className="mt-1 text-xs text-gray-600 truncate">
+              {isProcessingVoice ? "Processing: " : ""}
+              {currentTranscript}
             </div>
           )}
         </div>

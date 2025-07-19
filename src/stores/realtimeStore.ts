@@ -28,6 +28,7 @@ interface RealtimeStore extends RealtimeState {
   processAudioBlob: (audioBlob: Blob) => Promise<void>;
   sendToOpenAI: (transcript: string) => Promise<void>;
   parseAvatarInstructions: (response: string) => void;
+  analyzeResponseEmotion: (responseText: string) => void;
   
   // Audio recording
   mediaRecorder: MediaRecorder | null;
@@ -184,9 +185,19 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
   processAudioBlob: async (audioBlob: Blob) => {
     try {
       console.log('Processing audio blob...');
-      // Convert blob to base64
+      
+      // Convert blob to base64 safely for large files
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Convert to base64 in chunks to avoid stack overflow
+      let base64Audio = '';
+      const chunkSize = 8192; // Process in 8KB chunks
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+      }
 
       // Send to Deepgram
       const response = await fetch('/api/deepgram/realtime', {
@@ -336,9 +347,7 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
 
       const decoder = new TextDecoder();
       let fullResponse = '';
-      
-      // Trigger speaking state when response starts
-      avatarStore.reactToAIResponse('speaking');
+      let hasStartedSpeaking = false;
       
       while (true) {
         const { done, value } = await reader.read();
@@ -355,6 +364,16 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
               
               if (data.content) {
                 fullResponse += data.content;
+                
+                // Trigger speaking state when first content arrives
+                if (!hasStartedSpeaking) {
+                  avatarStore.reactToAIResponse('speaking');
+                  hasStartedSpeaking = true;
+                }
+                
+                // Analyze response content for immediate emotion changes
+                state.analyzeResponseEmotion(fullResponse);
+                
                 state.updateStreamingMessage(data.content);
               } else if (data.done) {
                 state.finishStreamingMessage();
@@ -380,6 +399,32 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       // Show concern on error
       const avatarStore = useAvatarStore.getState();
       avatarStore.showConcern();
+    }
+  },
+
+  // Analyze response content for immediate emotion changes
+  analyzeResponseEmotion: (responseText: string) => {
+    const avatarStore = useAvatarStore.getState();
+    const lowerResponse = responseText.toLowerCase();
+    
+    // Only change emotion if we have enough content (at least 20 characters)
+    if (responseText.length < 20) return;
+    
+    // Detect emotions from response content
+    if (lowerResponse.includes('exciting') || lowerResponse.includes('amazing') || lowerResponse.includes('wonderful')) {
+      avatarStore.setEmotion('excited');
+    } else if (lowerResponse.includes('think') || lowerResponse.includes('consider') || lowerResponse.includes('analyze')) {
+      avatarStore.setEmotion('thinking');
+    } else if (lowerResponse.includes('understand') || lowerResponse.includes('i see') || lowerResponse.includes('got it')) {
+      avatarStore.setEmotion('understanding');
+    } else if (lowerResponse.includes('help') || lowerResponse.includes('assist') || lowerResponse.includes('support')) {
+      avatarStore.setEmotion('helpful');
+    } else if (lowerResponse.includes('curious') || lowerResponse.includes('interesting') || lowerResponse.includes('tell me more')) {
+      avatarStore.setEmotion('curious');
+    } else if (lowerResponse.includes('sorry') || lowerResponse.includes('concern') || lowerResponse.includes('worry')) {
+      avatarStore.setEmotion('empathetic');
+    } else if (lowerResponse.includes('great') || lowerResponse.includes('excellent') || lowerResponse.includes('perfect')) {
+      avatarStore.setEmotion('celebrating');
     }
   },
 
