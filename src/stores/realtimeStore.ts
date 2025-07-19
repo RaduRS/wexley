@@ -27,6 +27,7 @@ interface RealtimeStore extends RealtimeState {
   // Audio processing
   processAudioBlob: (audioBlob: Blob) => Promise<void>;
   sendToOpenAI: (transcript: string) => Promise<void>;
+  sendToOpenAIWithCustomDisplay: (transcript: string, displayText: string) => Promise<void>;
   parseAvatarInstructions: (response: string) => void;
   analyzeResponseEmotion: (responseText: string) => void;
   
@@ -299,6 +300,109 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
   setTranscribing: (transcribing: boolean) => set({ isTranscribing: transcribing }),
   setSpeaking: (speaking: boolean) => set({ isSpeaking: speaking }),
   setError: (error: string | null) => set({ error }),
+
+  // Send to OpenAI with custom display text
+  sendToOpenAIWithCustomDisplay: async (transcript: string, displayText: string) => {
+    try {
+      console.log('Sending to OpenAI:', transcript);
+      console.log('Displaying to user:', displayText);
+      const state = get();
+      
+      // Trigger avatar reaction to user input
+      const avatarStore = useAvatarStore.getState();
+      avatarStore.reactToUserInput('voice', displayText);
+      
+      // Add user message with display text (what user sees)
+      state.addMessage({
+        role: 'user',
+        content: displayText,
+      });
+
+      // Prepare conversation for API
+      const conversation = state.conversation
+        .filter(msg => !msg.isStreaming)
+        .map(msg => ({ role: msg.role, content: msg.content }));
+
+      // Trigger thinking state
+      avatarStore.reactToAIResponse('thinking');
+
+      // Start streaming response - send actual transcript to OpenAI
+      const response = await fetch('/api/openai/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: transcript, // Send the actual prompt to OpenAI
+          conversation: conversation.slice(-10), // Keep last 10 messages for context
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response stream');
+      }
+
+      const decoder = new TextDecoder();
+      let fullResponse = '';
+      let hasStartedSpeaking = false;
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.content) {
+                fullResponse += data.content;
+                
+                // Trigger speaking state when first content arrives
+                if (!hasStartedSpeaking) {
+                  avatarStore.reactToAIResponse('speaking');
+                  hasStartedSpeaking = true;
+                }
+                
+                // Analyze response content for immediate emotion changes
+                state.analyzeResponseEmotion(fullResponse);
+                
+                state.updateStreamingMessage(data.content);
+              } else if (data.done) {
+                state.finishStreamingMessage();
+                
+                // Parse avatar instructions from the complete response
+                state.parseAvatarInstructions(fullResponse);
+                
+                // Trigger finished state
+                avatarStore.reactToAIResponse('finished');
+              }
+            } catch (e) {
+              // Ignore parsing errors for incomplete chunks
+            }
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Error sending to OpenAI:', error);
+      const state = get();
+      state.setError('Failed to get AI response');
+      
+      // Show concern on error
+      const avatarStore = useAvatarStore.getState();
+      avatarStore.showConcern();
+    }
+  },
 
   // Send to OpenAI
   sendToOpenAI: async (transcript: string) => {

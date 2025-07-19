@@ -4,8 +4,9 @@ import { useAudioStore } from "@/stores/audioStore";
 import { useAudioProcessor } from "@/hooks/useAudioProcessor";
 import { cn } from "@/utils";
 import { Mic, MicOff, MessageSquare, Loader2 } from "lucide-react";
-import { createMusicAnalyzer, formatMusicAnalysisForAI, type MusicAnalysis } from '@/utils/musicAnalyzer';
-import { musicCompanion } from '@/utils/musicCompanion';
+import { createMusicAnalyzer, type MusicAnalysis } from '@/utils/musicAnalyzer';
+import { whisperAnalyzer } from "@/services/whisperAnalyzer";
+import { musicCompanion } from "@/services/musicCompanion";
 
 interface RealtimeChatProps {
   className?: string;
@@ -17,6 +18,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
     error: chatError,
     clearConversation,
     sendToOpenAI,
+    sendToOpenAIWithCustomDisplay,
     setError,
   } = useRealtimeStore();
 
@@ -40,6 +42,14 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when conversation updates (only within chat container)
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [conversation]);
   const isRecordingVoiceRef = useRef(false);
 
   // Voice activity detection based on the audio analysis
@@ -73,7 +83,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
             console.log("Silence detected, stopping recording...");
             stopVoiceRecording();
           }
-        }, 2000); // Stop after 2 seconds of silence
+        }, 4000); // Stop after 4 seconds of silence
       }
     } else if (
       isVoiceDetected &&
@@ -139,146 +149,174 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
   };
 
   const processVoiceRecording = async (audioBlob: Blob) => {
-    // Prevent recursive calls
-    if (isProcessingVoice) {
-      console.log("Already processing voice, skipping...");
+    if (!audioBlob || audioBlob.size === 0) {
+      console.warn("Empty audio blob received");
       return;
     }
 
+    setIsProcessingVoice(true);
+    setError("");
+
     try {
-      setIsProcessingVoice(true);
-      setCurrentTranscript("Analyzing audio...");
-
-      // Validate audio blob
-      if (!audioBlob || audioBlob.size === 0) {
-        console.log("Empty audio blob, skipping...");
-        setCurrentTranscript("No audio recorded");
-        setTimeout(() => setCurrentTranscript(""), 2000);
-        return;
-      }
-
-      // Convert blob to audio buffer for analysis
-      const arrayBuffer = await audioBlob.arrayBuffer();
+      // Create separate ArrayBuffers for different operations to avoid detachment
+      const arrayBufferForAudio = await audioBlob.arrayBuffer();
+      const arrayBufferForWhisper = await audioBlob.arrayBuffer();
+      const arrayBufferForDeepgram = await audioBlob.arrayBuffer();
+      
       const audioContext = new AudioContext();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+      const audioBuffer = await audioContext.decodeAudioData(arrayBufferForAudio);
       const audioData = audioBuffer.getChannelData(0);
 
-      // Get current audio features from the audio processor
-      const features = currentAnalysis ? {
-        spectralCentroid: currentAnalysis.spectralCentroid,
-        spectralRolloff: currentAnalysis.spectralRolloff,
-        rms: currentAnalysis.volume,
-        zcr: 0.1, // Default value, would need to calculate from audioData
-        mfcc: [], // Would need to extract from audioData
-        chroma: [], // Would need to extract from audioData
-        spectralBandwidth: 0,
-        timestamp: Date.now()
-      } : undefined;
-
-      // Advanced music companion analysis
-      let companionAnalysis = null;
-      if (features) {
-        companionAnalysis = musicCompanion.analyzePerformance(audioData, features, audioBuffer.sampleRate);
-        console.log("Music Companion Analysis:", companionAnalysis);
-      }
-
-      // Basic music analysis (fallback)
-      const musicAnalyzer = createMusicAnalyzer();
-      const musicAnalysis = musicAnalyzer.analyzeAudio(audioData, audioBuffer.sampleRate);
-      setCurrentMusicAnalysis(musicAnalysis);
-
-      console.log("Audio analysis:", musicAnalysis);
-
-      // Always try to transcribe first to get what the user said
-      setCurrentTranscript("Processing audio...");
-      
-      // Convert blob to base64 for Deepgram safely for large files
-      const uint8Array = new Uint8Array(arrayBuffer);
-      
-      // Convert to base64 in chunks to avoid stack overflow
-      let base64Audio = '';
-      const chunkSize = 8192; // Process in 8KB chunks
-      
-      for (let i = 0; i < uint8Array.length; i += chunkSize) {
-        const chunk = uint8Array.slice(i, i + chunkSize);
-        base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
-      }
-
-      // Send to Deepgram for transcription
-      const response = await fetch("/api/deepgram/realtime", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ audio: base64Audio }),
+      console.log("Processing audio blob:", {
+        size: audioBlob.size,
+        duration: audioBuffer.duration,
+        sampleRate: audioBuffer.sampleRate,
+        channels: audioBuffer.numberOfChannels
       });
 
-      if (!response.ok) {
-        throw new Error(`Transcription failed: ${response.status}`);
-      }
+      setCurrentTranscript("Analyzing audio...");
 
-      const data = await response.json();
-      console.log("Transcription result:", data);
+      // Step 1: Quick analysis to determine if it's primarily speech or music
+      const musicAnalyzer = createMusicAnalyzer();
+      const quickAnalysis = musicAnalyzer.analyzeAudio(audioData, audioBuffer.sampleRate);
+      
+      console.log("Quick analysis:", quickAnalysis);
 
-      // Determine what to send to AI based on advanced analysis
+      // Step 2: Decide which service to use based on content type
       let promptToSend = "";
       let displayText = "";
-      
-      if (companionAnalysis) {
-        // Use advanced music companion analysis
-        const { voice, instruments, overall } = companionAnalysis;
+
+      // IMPROVED LOGIC: Prioritize music detection when both music and singing are present
+      // This handles cases like guitar + vocals which should go to music analysis
+      if (quickAnalysis.isMusicDetected && quickAnalysis.confidence > 0.2) {
+        // MUSIC PATH: Try Whisper for musical content + Creative Companion, with fallback
+        console.log("Detected music - trying Whisper + Creative Companion");
         
-        if (voice.isVoiceDetected && data.transcript && data.transcript.trim()) {
-          // Voice detected with transcript
-          const voiceType = voice.isSinging ? "singing" : "speaking";
-          displayText = `${voiceType}: "${data.transcript}"`;
+        let whisperSuccess = false;
+        
+        try {
+          const whisperResult = await whisperAnalyzer.analyzeAudio(arrayBufferForWhisper);
           
-          if (instruments.instruments.length > 0 && instruments.instruments[0] !== 'unknown') {
-            // Voice + instruments
-            displayText += ` + ${instruments.instruments.join(', ')}`;
-            const musicDescription = musicCompanion.formatForAI(companionAnalysis);
-            promptToSend = `I'm ${voiceType} "${data.transcript.trim()}" while playing ${instruments.instruments.join(' and ')}. Here's the musical analysis:\n${musicDescription}\n\nAs my music companion, what do you think? Give me specific feedback about my performance and any suggestions for improvement.`;
-          } else {
-            // Just voice
-            promptToSend = `I'm ${voiceType}: "${data.transcript.trim()}". ${voice.isSinging ? `My pitch is ${voice.pitch.toFixed(1)}Hz with ${(voice.pitchStability * 100).toFixed(0)}% stability. ` : ''}What do you think?`;
+          if (whisperResult && whisperResult.music) {
+            console.log("Whisper music analysis successful:", whisperResult);
+            
+            // Create enhanced display text
+            displayText = `🎵 Music Analysis: ${whisperResult.music.instruments.join(', ')} | ${whisperResult.music.genre} | ${whisperResult.music.tempo} | ${whisperResult.music.mood}`;
+            
+            // Generate creative companion prompt
+            const creativePrompt = musicCompanion.generateContextualPrompt(whisperResult.music, true);
+            promptToSend = creativePrompt;
+            
+            setCurrentMusicAnalysis({
+              ...quickAnalysis,
+              instruments: whisperResult.music.instruments,
+              genre: whisperResult.music.genre,
+              mood: whisperResult.music.mood,
+              confidence: whisperResult.music.confidence
+            });
+            
+            whisperSuccess = true;
           }
-        } else if (instruments.instruments.length > 0 && instruments.instruments[0] !== 'unknown') {
-          // Just instruments, no clear voice
-          displayText = `Playing: ${instruments.instruments.join(', ')}`;
-          const musicDescription = musicCompanion.formatForAI(companionAnalysis);
-          promptToSend = `I'm playing ${instruments.instruments.join(' and ')}. Here's the musical analysis:\n${musicDescription}\n\nAs my music companion, what do you think about this performance? Any suggestions?`;
-        } else {
-          // Fallback to basic analysis
-          displayText = "Audio detected";
-          promptToSend = "I just played something. What do you think?";
+        } catch (error) {
+          console.warn("Whisper API failed, using basic music detection:", error);
         }
-      } else {
-        // Fallback to original logic if companion analysis fails
-        if (musicAnalysis.isMusicDetected && musicAnalysis.confidence > 0.3) {
-          const musicDescription = formatMusicAnalysisForAI(musicAnalysis);
-          
-          if (data.transcript && data.transcript.trim()) {
-            displayText = `Voice + Music: "${data.transcript}"`;
-            promptToSend = `I'm ${data.transcript.trim()} while playing music. ${musicDescription}. What do you think about this combination?`;
-          } else {
-            displayText = "Music detected";
-            promptToSend = `I'm playing some music. ${musicDescription}. What do you think about this music? Keep it short and conversational.`;
-          }
-        } else if (data.transcript && data.transcript.trim()) {
-          displayText = data.transcript;
+        
+        // If Whisper failed, use basic music detection with simple prompt
+         if (!whisperSuccess) {
+           displayText = "🎵 Music detected";
+           // Use the simplest possible prompt to avoid long responses
+           promptToSend = musicCompanion.generateSimplePrompt(true);
+         }
+
+      } else if ((quickAnalysis.isVoice || quickAnalysis.isSinging) && !quickAnalysis.isMusicDetected) {
+        // SPEECH PATH: Use Deepgram + OpenAI for voice/speech content (only when no music detected)
+        console.log("Detected speech/voice without music - using Deepgram");
+        
+        // Convert blob to base64 for Deepgram using dedicated ArrayBuffer
+        const uint8Array = new Uint8Array(arrayBufferForDeepgram);
+        let base64Audio = '';
+        const chunkSize = 8192;
+        
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.slice(i, i + chunkSize);
+          base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+        }
+
+        const response = await fetch("/api/deepgram/realtime", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ audio: base64Audio }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Transcription failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("Deepgram transcription:", data);
+
+        if (data.transcript && data.transcript.trim()) {
+          const voiceType = quickAnalysis.isSinging ? "singing" : "speaking";
+          displayText = `${voiceType}: "${data.transcript}"`;
           promptToSend = data.transcript.trim();
         } else {
-          displayText = "No clear audio detected";
-          setTimeout(() => setCurrentTranscript(""), 2000);
-          return;
+          displayText = "Voice detected but unclear";
+          promptToSend = "I said something but it wasn't clear. Can you respond anyway?";
+        }
+
+      } else {
+        // UNCLEAR AUDIO: Try both approaches
+        console.log("Unclear audio - trying both approaches");
+        
+        // Try Deepgram first for potential speech using dedicated ArrayBuffer
+        const uint8Array = new Uint8Array(arrayBufferForDeepgram);
+        let base64Audio = '';
+        const chunkSize = 8192;
+        
+        for (let i = 0; i < uint8Array.length; i += chunkSize) {
+          const chunk = uint8Array.slice(i, i + chunkSize);
+          base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+        }
+
+        try {
+          const response = await fetch("/api/deepgram/realtime", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ audio: base64Audio }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.transcript && data.transcript.trim()) {
+              displayText = data.transcript;
+              promptToSend = data.transcript.trim();
+            }
+          }
+        } catch (error) {
+          console.warn("Deepgram failed for unclear audio:", error);
+        }
+
+        // If no clear speech, fall back to generic response
+        if (!promptToSend) {
+          displayText = "Audio detected";
+          promptToSend = "I made some sound. What do you think?";
         }
       }
 
       setCurrentTranscript(displayText);
 
-      // Send to OpenAI
+      // Send to OpenAI with appropriate user message display
       if (promptToSend) {
-        sendToOpenAI(promptToSend).catch((error) => {
+        // For music analysis, show a user-friendly message instead of the internal prompt
+        const userDisplayText = quickAnalysis.isMusicDetected && quickAnalysis.confidence > 0.2 
+          ? displayText // Use the music analysis display text
+          : displayText; // Use the actual transcript for speech
+        
+        sendToOpenAIWithCustomDisplay(promptToSend, userDisplayText).catch((error) => {
           console.error("OpenAI error:", error);
           setError("Failed to get AI response");
         });
@@ -306,6 +344,72 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
     }
   };
 
+  // Helper function to format AI responses for better display
+  const formatAIResponse = (content: string) => {
+    try {
+      // Try to parse as JSON first (for creative suggestions)
+      const parsed = JSON.parse(content);
+      if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
+        return (
+          <div className="space-y-3">
+            <div className="font-medium text-purple-700 flex items-center gap-2">
+              🎵 Creative Suggestions
+            </div>
+            
+            {parsed.suggestions.map((suggestion: {
+              instrument: string;
+              type: string;
+              style: string;
+              description: string;
+              reasoning: string;
+            }, idx: number) => (
+              <div key={idx} className="bg-purple-50 p-3 rounded-lg border-l-4 border-purple-400">
+                <div className="font-medium text-purple-800 mb-1">
+                  {idx + 1}. {suggestion.instrument} ({suggestion.type})
+                </div>
+                <div className="text-sm text-purple-700 mb-1">
+                  <strong>Style:</strong> {suggestion.style}
+                </div>
+                <div className="text-sm text-gray-700 mb-2">
+                  {suggestion.description}
+                </div>
+                <div className="text-xs text-purple-600 italic">
+                  💡 {suggestion.reasoning}
+                </div>
+              </div>
+            ))}
+            
+            {parsed.overall_feedback && (
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="font-medium text-blue-800 mb-1">Overall Feedback:</div>
+                <div className="text-sm text-blue-700">{parsed.overall_feedback}</div>
+              </div>
+            )}
+            
+            {parsed.next_steps && parsed.next_steps.length > 0 && (
+              <div className="bg-green-50 p-3 rounded-lg">
+                <div className="font-medium text-green-800 mb-2">Next Steps:</div>
+                <ul className="text-sm text-green-700 space-y-1">
+                  {parsed.next_steps.map((step: string, idx: number) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-green-600 font-bold">{idx + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        );
+      }
+    } catch (error) {
+      // Not JSON or not a creative response, fall back to regular text
+    }
+    
+    // Regular text response
+    return <span>{content}</span>;
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -324,7 +428,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
           <MessageSquare className="w-5 h-5" />
-          <h3 className="font-semibold">AI Chat</h3>
+          <h3 className="font-semibold">Music Companion</h3>
           {isRecording && (
             <div className="flex items-center gap-1 text-sm text-green-600">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -450,15 +554,15 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
       )}
 
       {/* Conversation */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {conversation.length === 0 ? (
           <div className="text-center text-gray-500 py-8">
             <MessageSquare className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg font-medium mb-2">Start a conversation</p>
+            <p className="text-lg font-medium mb-2">Start jamming with your AI companion</p>
             <p className="text-sm">
               {isRecording
-                ? "Speak naturally and I'll respond in real-time"
-                : "Click Start to begin voice chat with AI"}
+                ? "Play music or speak - I'll give you creative suggestions in real-time"
+                : "Click Start to begin your music collaboration session"}
             </p>
           </div>
         ) : (
@@ -478,7 +582,7 @@ export function RealtimeChat({ className }: RealtimeChatProps) {
                     : "bg-gray-100 text-gray-800 rounded-bl-sm"
                 )}
               >
-                {message.content}
+                {message.role === "assistant" ? formatAIResponse(message.content) : message.content}
               </div>
             </div>
           ))

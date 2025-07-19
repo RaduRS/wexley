@@ -154,8 +154,23 @@ export function createMusicAnalyzer() {
         rms
       });
       
-      // Music detection - consider it music if we have significant spectral content and it's not just voice
-      const isMusicDetected = !isVoice && (rms > 0.01 && spectralCentroid > 100);
+      // Enhanced music detection - consider it music if we have musical characteristics
+      // Guitar and other instruments can have lower RMS but clear musical spectral content
+      const hasMusicalSpectrum = spectralCentroid > 100 && spectralRolloff > 1000;
+      const hasMusicalEnergy = rms > 0.005; // Lower threshold for quieter instruments like guitar
+      const hasMusicalComplexity = zcr > 0.001; // Some harmonic complexity
+      
+      const isMusicDetected = !isVoice && hasMusicalSpectrum && hasMusicalEnergy && hasMusicalComplexity;
+      
+      // Calculate music confidence based on musical characteristics
+      let musicConfidence = 0;
+      if (hasMusicalSpectrum) musicConfidence += 0.4;
+      if (hasMusicalEnergy) musicConfidence += 0.3;
+      if (hasMusicalComplexity) musicConfidence += 0.2;
+      if (spectralRolloff > 5000) musicConfidence += 0.1; // Rich harmonic content
+      
+      // Use music confidence if it's higher than voice confidence
+      const finalConfidence = isMusicDetected ? Math.max(confidence, musicConfidence) : confidence;
 
       return {
         rms,
@@ -170,7 +185,7 @@ export function createMusicAnalyzer() {
         isVoice,
         isSinging,
         isMusicDetected,
-        confidence
+        confidence: finalConfidence
       };
     } catch (error) {
       console.error("Error in musicAnalyzer.analyzeAudio:", error);

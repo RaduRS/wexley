@@ -70,7 +70,7 @@ Always include the avatar instruction - it's essential for creating an engaging 
       model: 'gpt-4o-mini',
       messages,
       stream: true,
-      max_tokens: 500,
+      max_tokens: 1500,
       temperature: 0.7,
     });
 
