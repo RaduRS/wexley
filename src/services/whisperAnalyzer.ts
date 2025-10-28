@@ -89,14 +89,15 @@ export class WhisperAnalyzer {
 
   // Helper method to format music analysis for chat
   static formatMusicAnalysis(analysis: WhisperMusicAnalysis): string {
-    const parts = [];
+    const parts: string[] = [];
 
     if (analysis.instruments && analysis.instruments.length > 0) {
-      if (analysis.instruments.length === 1) {
-        parts.push(`I hear ${analysis.instruments[0]} playing`);
+      const instruments = [...analysis.instruments]; // avoid mutating input
+      if (instruments.length === 1) {
+        parts.push(`I hear ${instruments[0]} playing`);
       } else {
-        const lastInstrument = analysis.instruments.pop();
-        parts.push(`I hear ${analysis.instruments.join(', ')} and ${lastInstrument} playing`);
+        const lastInstrument = instruments[instruments.length - 1];
+        parts.push(`I hear ${instruments.slice(0, -1).join(', ')} and ${lastInstrument} playing`);
       }
     }
 
